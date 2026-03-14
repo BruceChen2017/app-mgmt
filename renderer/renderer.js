@@ -1,26 +1,139 @@
 'use strict';
 
+// ── ANSI Parser ───────────────────────────────────────────────────────────────
+// VS Code terminal colour palette (standard 0-7, bright 8-15)
+const ANSI_PALETTE = [
+  '#4c4c4c','#cd3131','#0dbc79','#e5e510','#2472c8','#bc3fbc','#11a8cd','#e5e5e5',
+  '#767676','#f14c4c','#23d18b','#f5f543','#3b8eea','#d670d6','#29b8db','#ffffff',
+];
+
+function ansi256(n) {
+  if (n < 16) return ANSI_PALETTE[n];
+  if (n < 232) {
+    n -= 16;
+    const b = n % 6, g = Math.floor(n / 6) % 6, r = Math.floor(n / 36);
+    const ch = v => v ? v * 40 + 55 : 0;
+    return `rgb(${ch(r)},${ch(g)},${ch(b)})`;
+  }
+  const v = (n - 232) * 10 + 8;
+  return `rgb(${v},${v},${v})`;
+}
+
+function freshState() {
+  return { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false };
+}
+
+function applySGR(codes, st) {
+  let i = 0;
+  while (i < codes.length) {
+    const n = codes[i];
+    if      (n === 0)              Object.assign(st, freshState());
+    else if (n === 1)              st.bold = true;
+    else if (n === 2)              st.dim = true;
+    else if (n === 3)              st.italic = true;
+    else if (n === 4)              st.underline = true;
+    else if (n === 22)             { st.bold = false; st.dim = false; }
+    else if (n === 23)             st.italic = false;
+    else if (n === 24)             st.underline = false;
+    else if (n === 39)             st.fg = null;
+    else if (n === 49)             st.bg = null;
+    else if (n >= 30 && n <= 37)   st.fg = ANSI_PALETTE[n - 30];
+    else if (n >= 90 && n <= 97)   st.fg = ANSI_PALETTE[n - 90 + 8];
+    else if (n >= 40 && n <= 47)   st.bg = ANSI_PALETTE[n - 40];
+    else if (n >= 100 && n <= 107) st.bg = ANSI_PALETTE[n - 100 + 8];
+    else if (n === 38) {
+      if (codes[i+1] === 5 && i+2 < codes.length)      { st.fg = ansi256(codes[i+2]); i += 2; }
+      else if (codes[i+1] === 2 && i+4 < codes.length) { st.fg = `rgb(${codes[i+2]},${codes[i+3]},${codes[i+4]})`; i += 4; }
+    }
+    else if (n === 48) {
+      if (codes[i+1] === 5 && i+2 < codes.length)      { st.bg = ansi256(codes[i+2]); i += 2; }
+      else if (codes[i+1] === 2 && i+4 < codes.length) { st.bg = `rgb(${codes[i+2]},${codes[i+3]},${codes[i+4]})`; i += 4; }
+    }
+    i++;
+  }
+}
+
+function stToStyle(st) {
+  let s = '';
+  if (st.fg)        s += `color:${st.fg};`;
+  if (st.bg)        s += `background:${st.bg};`;
+  if (st.bold)      s += 'font-weight:bold;';
+  if (st.dim)       s += 'opacity:0.55;';
+  if (st.italic)    s += 'font-style:italic;';
+  if (st.underline) s += 'text-decoration:underline;';
+  return s;
+}
+
+function renderSeg(text, st, defaultCls) {
+  const style = stToStyle(st);
+  const esc   = escHtml(text);
+  if (style)      return `<span style="${style}">${esc}</span>`;
+  if (defaultCls) return `<span class="${defaultCls}">${esc}</span>`;
+  return esc;
+}
+
+/**
+ * Convert a raw text chunk (may contain ANSI escapes) to HTML.
+ * Mutates `st` so ANSI state carries over to the next chunk.
+ * The result is wrapped in <span class="output-chunk"> for DOM trimming.
+ */
+function ansiChunkToHtml(raw, st, defaultCls) {
+  raw = raw.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ''); // strip OSC
+  raw = raw.replace(/\x1b\[[\d;]*[ABCDEFGHJKLMSTfsu]/g, '');   // strip non-SGR CSI
+  raw = raw.replace(/\x1b[@-Z\\-_]/g, '');                       // strip 2-char escapes
+  raw = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');         // normalise line endings
+
+  const SGR = /\x1b\[([\d;]*)m/g;
+  let inner = '', last = 0, m;
+  while ((m = SGR.exec(raw)) !== null) {
+    const seg = raw.slice(last, m.index);
+    if (seg) inner += renderSeg(seg, st, defaultCls);
+    applySGR(m[1] ? m[1].split(';').map(Number) : [0], st);
+    last = m.index + m[0].length;
+  }
+  const tail = raw.slice(last);
+  if (tail) inner += renderSeg(tail, st, defaultCls);
+  return `<span class="output-chunk">${inner}</span>`;
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const MAX_BUFFER_CHUNKS = 500;
+
 // ── State ────────────────────────────────────────────────────────────────────
-let tools = [];
+let tools        = [];
 let selectedToolId = null;
-let editingToolId  = null;   // null = add mode, string = edit mode
-/** @type {Set<string>} toolIds currently running */
-const runningTools = new Set();
-/** Per-tool output buffers: Map<toolId, Array<{text,cls}>> */
-const toolOutputs  = new Map();
+let editingToolId  = null;
+const runningTools   = new Set();
+/** Per-tool rendered HTML chunks: Map<toolId, string[]> */
+const toolOutputs    = new Map();
+/** Per-tool ANSI parser state for live append */
+const toolAnsiStates = new Map();
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
-const toolListEl      = document.getElementById('tool-list');
-const commandInput    = document.getElementById('command-input');
-const btnStart        = document.getElementById('btn-start');
-const btnStop         = document.getElementById('btn-stop');
-const btnClearOutput  = document.getElementById('btn-clear-output');
-const outputArea      = document.getElementById('output-area');
-const modalOverlay    = document.getElementById('modal-overlay');
-const modalTitle      = document.getElementById('modal-title');
-const toolNameInput   = document.getElementById('tool-name');
-const toolDescInput   = document.getElementById('tool-description');
-const toolCmdInput    = document.getElementById('tool-command');
+const toolListEl     = document.getElementById('tool-list');
+const commandInput   = document.getElementById('command-input');
+const cwdInput       = document.getElementById('cwd-input');
+const btnStart       = document.getElementById('btn-start');
+const btnStop        = document.getElementById('btn-stop');
+const btnClearOutput = document.getElementById('btn-clear-output');
+const outputArea     = document.getElementById('output-area');
+const modalOverlay   = document.getElementById('modal-overlay');
+const modalTitle     = document.getElementById('modal-title');
+const toolNameInput  = document.getElementById('tool-name');
+const toolDescInput  = document.getElementById('tool-description');
+const toolCmdInput   = document.getElementById('tool-command');
+const toolCwdInput   = document.getElementById('tool-cwd');
+const leftPanel      = document.querySelector('.left-panel');
+const resizeHandle   = document.querySelector('.resize-handle');
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
@@ -28,21 +141,13 @@ async function init() {
   renderToolList();
 
   window.electronAPI.onProcessOutput(({ toolId, data, stream }) => {
-    const cls = stream === 'stderr' ? 'output-stderr' : 'output-text';
-    pushOutput(toolId, data, cls);
-    if (toolId === selectedToolId) {
-      appendOutputNode(data, cls);
-    }
+    pushAndDisplay(toolId, data, stream);
   });
 
   window.electronAPI.onProcessExit(({ toolId, code }) => {
     runningTools.delete(toolId);
-    const msg = `\n[进程已退出，退出码 ${code}]\n`;
-    pushOutput(toolId, msg, 'output-system');
-    if (toolId === selectedToolId) {
-      appendOutputNode(msg, 'output-system');
-      updateButtons();
-    }
+    pushAndDisplay(toolId, `\n[进程已退出，退出码 ${code}]\n`, 'system');
+    if (toolId === selectedToolId) updateButtons();
     renderToolList();
   });
 }
@@ -106,6 +211,7 @@ function selectTool(toolId) {
   if (!tool) return;
 
   commandInput.value = tool.command || '';
+  cwdInput.value     = tool.cwd     || '';
   renderOutputForTool(toolId);
   updateButtons();
   renderToolList();
@@ -126,24 +232,25 @@ function updateButtons() {
 btnStart.addEventListener('click', async () => {
   if (!selectedToolId) return;
   const command = commandInput.value.trim();
+  const cwd     = cwdInput.value.trim() || undefined;
   if (!command) return;
 
-  // Clear this tool's output buffer and show the command
+  // Clear output & reset ANSI state for this tool
   toolOutputs.set(selectedToolId, []);
-  renderOutputForTool(selectedToolId);
-  pushOutput(selectedToolId, `$ ${command}\n`, 'output-system');
-  appendOutputNode(`$ ${command}\n`, 'output-system');
+  toolAnsiStates.set(selectedToolId, freshState());
+  outputArea.innerHTML = '';
 
   runningTools.add(selectedToolId);
   updateButtons();
   renderToolList();
 
-  const result = await window.electronAPI.startCommand(selectedToolId, command);
+  const displayCwd = cwd ? ` (cwd: ${cwd})` : '';
+  pushAndDisplay(selectedToolId, `$ ${command}${displayCwd}\n`, 'system');
+
+  const result = await window.electronAPI.startCommand(selectedToolId, command, cwd);
   if (!result.success) {
     runningTools.delete(selectedToolId);
-    const errMsg = `Error: ${result.error}\n`;
-    pushOutput(selectedToolId, errMsg, 'output-stderr');
-    appendOutputNode(errMsg, 'output-stderr');
+    pushAndDisplay(selectedToolId, `Error: ${result.error}\n`, 'stderr');
     updateButtons();
     renderToolList();
   }
@@ -154,9 +261,7 @@ btnStop.addEventListener('click', async () => {
   const result = await window.electronAPI.stopCommand(selectedToolId);
   if (result.success) {
     runningTools.delete(selectedToolId);
-    const msg = '\n[进程已停止]\n';
-    pushOutput(selectedToolId, msg, 'output-system');
-    appendOutputNode(msg, 'output-system');
+    pushAndDisplay(selectedToolId, '\n[进程已停止]\n', 'system');
     updateButtons();
     renderToolList();
   }
@@ -171,43 +276,88 @@ commandInput.addEventListener('keydown', (e) => {
 commandInput.addEventListener('input', updateButtons);
 
 btnClearOutput.addEventListener('click', () => {
-  if (selectedToolId) toolOutputs.set(selectedToolId, []);
+  if (selectedToolId) {
+    toolOutputs.set(selectedToolId, []);
+    toolAnsiStates.set(selectedToolId, freshState());
+  }
   outputArea.innerHTML =
     '<span class="output-placeholder">shell output after command executed</span>';
 });
 
-// ── Output helpers ────────────────────────────────────────────────────────────
-function pushOutput(toolId, text, cls) {
+// ── Output system ─────────────────────────────────────────────────────────────
+/**
+ * Parse rawText with ANSI codes, store rendered HTML in buffer,
+ * and append to DOM if this tool is currently selected.
+ * stream: 'stdout' | 'stderr' | 'system'
+ */
+function pushAndDisplay(toolId, rawText, stream) {
+  const defaultCls =
+    stream === 'stderr' ? 'output-stderr' :
+    stream === 'system' ? 'output-system' : 'output-text';
+
+  if (!toolAnsiStates.has(toolId)) toolAnsiStates.set(toolId, freshState());
+  const st   = toolAnsiStates.get(toolId);
+  const html = ansiChunkToHtml(rawText, st, defaultCls);
+
   if (!toolOutputs.has(toolId)) toolOutputs.set(toolId, []);
-  toolOutputs.get(toolId).push({ text, cls });
+  const buf = toolOutputs.get(toolId);
+  buf.push(html);
+
+  // ── Buffer size limit ───────────────────────────────────────────────────────
+  if (buf.length > MAX_BUFFER_CHUNKS) {
+    const excess = buf.length - MAX_BUFFER_CHUNKS;
+    buf.splice(0, excess);
+    if (toolId === selectedToolId) {
+      const chunks = outputArea.querySelectorAll('.output-chunk');
+      for (let i = 0; i < Math.min(excess, chunks.length); i++) chunks[i].remove();
+    }
+  }
+
+  if (toolId === selectedToolId) {
+    const placeholder = outputArea.querySelector('.output-placeholder');
+    if (placeholder) placeholder.remove();
+    outputArea.insertAdjacentHTML('beforeend', html);
+    outputArea.scrollTop = outputArea.scrollHeight;
+  }
 }
 
 function renderOutputForTool(toolId) {
-  outputArea.innerHTML = '';
   const buf = toolOutputs.get(toolId);
   if (!buf || buf.length === 0) {
     outputArea.innerHTML =
       '<span class="output-placeholder">shell output after command executed</span>';
     return;
   }
-  buf.forEach(({ text, cls }) => {
-    const span = document.createElement('span');
-    span.className = cls;
-    span.textContent = text;
-    outputArea.appendChild(span);
-  });
+  outputArea.innerHTML = buf.join('');
   outputArea.scrollTop = outputArea.scrollHeight;
 }
 
-function appendOutputNode(text, cls) {
-  const placeholder = outputArea.querySelector('.output-placeholder');
-  if (placeholder) placeholder.remove();
-  const span = document.createElement('span');
-  span.className = cls;
-  span.textContent = text;
-  outputArea.appendChild(span);
-  outputArea.scrollTop = outputArea.scrollHeight;
-}
+// ── Drag-resize ───────────────────────────────────────────────────────────────
+const MIN_PANEL_W = 160;
+const MAX_PANEL_W = 520;
+let dragStart = null;
+
+resizeHandle.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  dragStart = { x: e.clientX, w: leftPanel.offsetWidth };
+  resizeHandle.classList.add('dragging');
+  document.body.style.cursor     = 'col-resize';
+  document.body.style.userSelect = 'none';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!dragStart) return;
+  const w = Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, dragStart.w + e.clientX - dragStart.x));
+  leftPanel.style.width = w + 'px';
+});
+
+document.addEventListener('mouseup', () => {
+  if (!dragStart) return;
+  dragStart = null;
+  resizeHandle.classList.remove('dragging');
+  document.body.style.cursor     = '';
+  document.body.style.userSelect = '';
+});
 
 // ── Modal (Add / Edit) ────────────────────────────────────────────────────────
 document.getElementById('btn-add-tool').addEventListener('click', openAddModal);
@@ -232,6 +382,7 @@ function openAddModal() {
   toolNameInput.value = '';
   toolDescInput.value = '';
   toolCmdInput.value  = '';
+  toolCwdInput.value  = '';
   clearFormErrors();
   openModal();
   toolNameInput.focus();
@@ -245,6 +396,7 @@ function openEditModal(toolId) {
   toolNameInput.value = tool.name        || '';
   toolDescInput.value = tool.description || '';
   toolCmdInput.value  = tool.command     || '';
+  toolCwdInput.value  = tool.cwd         || '';
   clearFormErrors();
   openModal();
   toolNameInput.focus();
@@ -262,6 +414,7 @@ async function saveTool() {
   const name        = toolNameInput.value.trim();
   const description = toolDescInput.value.trim();
   const command     = toolCmdInput.value.trim();
+  const cwd         = toolCwdInput.value.trim();
 
   let valid = true;
   clearFormErrors();
@@ -280,17 +433,11 @@ async function saveTool() {
 
   if (editingToolId) {
     const tool = tools.find((t) => t.id === editingToolId);
-    if (tool) {
-      tool.name        = name;
-      tool.description = description;
-      tool.command     = command;
-    }
+    if (tool) Object.assign(tool, { name, description, command, cwd });
   } else {
     tools.push({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name,
-      description,
-      command,
+      name, description, command, cwd,
     });
   }
 
@@ -298,10 +445,13 @@ async function saveTool() {
   closeModal();
   renderToolList();
 
-  // Refresh command input if the selected tool was edited
+  // Refresh command section if the selected tool was edited
   if (editingToolId === selectedToolId) {
     const tool = tools.find((t) => t.id === selectedToolId);
-    if (tool) commandInput.value = tool.command || '';
+    if (tool) {
+      commandInput.value = tool.command || '';
+      cwdInput.value     = tool.cwd     || '';
+    }
     updateButtons();
   }
 }
@@ -315,11 +465,13 @@ async function deleteTool(toolId) {
 
   tools = tools.filter((t) => t.id !== toolId);
   toolOutputs.delete(toolId);
+  toolAnsiStates.delete(toolId);
   await window.electronAPI.saveTools(tools);
 
   if (selectedToolId === toolId) {
     selectedToolId = null;
     commandInput.value = '';
+    cwdInput.value = '';
     outputArea.innerHTML =
       '<span class="output-placeholder">shell output after command executed</span>';
     updateButtons();

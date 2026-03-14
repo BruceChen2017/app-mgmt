@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self'">
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
   <title>Tool Manager</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -21,8 +21,8 @@
       </div>
     </div>
 
-    <!-- ── Dashed divider ─────────────────────────────────────────────── -->
-    <div class="divider"></div>
+    <!-- ── Resize handle ──────────────────────────────────────────────── -->
+    <div class="resize-handle"></div>
 
     <!-- ── Right Panel: command + output ──────────────────────────────── -->
     <div class="right-panel">
@@ -37,6 +37,12 @@
           autocomplete="off"
           spellcheck="false"
         >
+        <div class="cwd-row">
+          <label class="cwd-label" for="cwd-input">Dir</label>
+          <input type="text" id="cwd-input" class="cwd-input"
+            placeholder="工作目录（留空=系统默认）"
+            autocomplete="off" spellcheck="false">
+        </div>
         <div class="command-buttons">
           <button class="btn-start" id="btn-start" disabled>Start</button>
           <button class="btn-stop"  id="btn-stop"  disabled>Stop</button>
@@ -75,6 +81,10 @@
         <div class="form-group">
           <label for="tool-command">命令</label>
           <input type="text" id="tool-command" placeholder="例如：npm start、python app.py" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="form-group form-group--mono">
+          <label for="tool-cwd">工作目录（cwd）</label>
+          <input type="text" id="tool-cwd" placeholder="留空则使用系统默认目录" autocomplete="off" spellcheck="false">
         </div>
       </div>
       <div class="modal-footer">

@@ -68,15 +68,24 @@ ipcMain.handle('save-tools', (_event, tools) => {
   return true;
 });
 
-ipcMain.handle('start-command', (_event, { toolId, command }) => {
+ipcMain.handle('start-command', (_event, { toolId, command, cwd }) => {
   if (runningProcesses[toolId]) {
     return { success: false, error: 'Already running' };
+  }
+
+  let effectiveCwd = process.env.USERPROFILE || process.env.HOME || process.cwd();
+  if (cwd && cwd.trim()) {
+    const resolved = path.resolve(cwd.trim());
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      return { success: false, error: `工作目录不存在: ${cwd}` };
+    }
+    effectiveCwd = resolved;
   }
 
   try {
     const child = spawn(command, [], {
       shell: true,
-      cwd: process.env.USERPROFILE || process.env.HOME || process.cwd(),
+      cwd: effectiveCwd,
       windowsHide: true,
     });
 
