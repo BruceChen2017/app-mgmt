@@ -151,6 +151,7 @@ const resizeHandle   = document.querySelector('.resize-handle');
 const toolSearchInput = document.getElementById('tool-search');
 const envTableEl     = document.getElementById('env-table');
 const btnAddEnv      = document.getElementById('btn-add-env');
+const btnSaveCmd     = document.getElementById('btn-save-cmd');
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
@@ -267,6 +268,7 @@ function createToolItem(tool) {
     ${dot}
     <div class="tool-item-actions" draggable="false">
       <button class="btn-edit-tool"   title="编辑">✎</button>
+      <button class="btn-clone-tool"  title="克隆">⎘</button>
       <button class="btn-delete-tool" title="删除">✕</button>
     </div>
   `;
@@ -275,6 +277,18 @@ function createToolItem(tool) {
   item.querySelector('.btn-edit-tool').addEventListener('click', (e) => {
     e.stopPropagation();
     openEditModal(tool.id);
+  });
+  item.querySelector('.btn-clone-tool').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const src = tools.find(t => t.id === tool.id);
+    if (!src) return;
+    const clone = JSON.parse(JSON.stringify(src));
+    clone.id   = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    clone.name = src.name + ' (copy)';
+    const idx = tools.findIndex(t => t.id === tool.id);
+    tools.splice(idx + 1, 0, clone);
+    await window.electronAPI.saveTools(tools);
+    renderToolList();
   });
   item.querySelector('.btn-delete-tool').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -328,6 +342,7 @@ function selectTool(toolId) {
 
   commandInput.value = tool.command || '';
   cwdInput.value     = tool.cwd     || '';
+  markCommandClean();
   cmdHistoryIdx.set(toolId, -1);
   renderOutputForTool(toolId);
   renderOutputTabs();
@@ -411,6 +426,7 @@ commandInput.addEventListener('keydown', (e) => {
     const newIdx = idx === -1 ? hist.length - 1 : Math.max(0, idx - 1);
     cmdHistoryIdx.set(selectedToolId, newIdx);
     commandInput.value = hist[newIdx];
+    markCommandDirty();
     updateButtons();
   } else if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -423,12 +439,55 @@ commandInput.addEventListener('keydown', (e) => {
       cmdHistoryIdx.set(selectedToolId, newIdx);
       commandInput.value = hist[newIdx];
     }
+    markCommandDirty();
     updateButtons();
   }
 });
 
 // Re-evaluate Start button when command text changes
-commandInput.addEventListener('input', updateButtons);
+commandInput.addEventListener('input', () => { markCommandDirty(); updateButtons(); });
+cwdInput.addEventListener('input', markCommandDirty);
+
+function markCommandDirty() {
+  if (!selectedToolId) return;
+  const tool = tools.find(t => t.id === selectedToolId);
+  if (!tool) return;
+  const changed = commandInput.value !== (tool.command || '') ||
+                  cwdInput.value     !== (tool.cwd     || '');
+  if (changed) {
+    commandInput.classList.add('dirty');
+    cwdInput.classList.add('dirty');
+    btnSaveCmd.classList.remove('hidden');
+  } else {
+    markCommandClean();
+  }
+}
+
+function markCommandClean() {
+  commandInput.classList.remove('dirty');
+  cwdInput.classList.remove('dirty');
+  btnSaveCmd.classList.add('hidden');
+}
+
+btnSaveCmd.addEventListener('click', saveCommandToTool);
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 's' && selectedToolId && !btnSaveCmd.classList.contains('hidden')) {
+    e.preventDefault();
+    saveCommandToTool();
+  }
+});
+
+async function saveCommandToTool() {
+  if (!selectedToolId) return;
+  const tool = tools.find(t => t.id === selectedToolId);
+  if (!tool) return;
+  tool.command = commandInput.value.trim();
+  tool.cwd     = cwdInput.value.trim();
+  await window.electronAPI.saveTools(tools);
+  markCommandClean();
+  renderToolList();
+}
 
 btnClearOutput.addEventListener('click', () => {
   const clearId = activeOutputToolId || selectedToolId;
