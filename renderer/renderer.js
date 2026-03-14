@@ -123,6 +123,12 @@ let activeOutputToolId = null;
 const collapsedGroups  = new Set();
 /** Current search query */
 let searchQuery = '';
+/** Drag-and-drop reorder: id of the item being dragged */
+let dragToolId = null;
+/** Per-tool command run history: Map<toolId, string[]> */
+const cmdHistory    = new Map();
+/** Navigation cursor into history (-1 = not browsing) */
+const cmdHistoryIdx = new Map();
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const toolListEl     = document.getElementById('tool-list');
@@ -251,13 +257,15 @@ function createToolItem(tool) {
   item.dataset.id = tool.id;
 
   const dot = isRunning ? '<span class="running-dot" title="运行中"></span>' : '';
+  item.setAttribute('draggable', 'true');
   item.innerHTML = `
+    <span class="drag-handle" title="拖拽排序">⠿</span>
     <div class="tool-item-content">
       <div class="tool-item-name">${escHtml(tool.name)}</div>
       <div class="tool-item-desc">${escHtml(tool.description || '')}</div>
     </div>
     ${dot}
-    <div class="tool-item-actions">
+    <div class="tool-item-actions" draggable="false">
       <button class="btn-edit-tool"   title="编辑">✎</button>
       <button class="btn-delete-tool" title="删除">✕</button>
     </div>
@@ -272,6 +280,42 @@ function createToolItem(tool) {
     e.stopPropagation();
     deleteTool(tool.id);
   });
+
+  // ── Drag-to-reorder ──────────────────────────────────────────────────────
+  item.addEventListener('dragstart', (e) => {
+    // Prevent drag when clicking action buttons
+    if (e.target.closest('.tool-item-actions')) { e.preventDefault(); return; }
+    dragToolId = tool.id;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => item.classList.add('dragging'), 0);
+  });
+  item.addEventListener('dragend', () => {
+    dragToolId = null;
+    item.classList.remove('dragging');
+    document.querySelectorAll('.tool-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+  });
+  item.addEventListener('dragover', (e) => {
+    if (!dragToolId || dragToolId === tool.id) return;
+    e.preventDefault();
+    document.querySelectorAll('.tool-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragleave', (e) => {
+    if (!item.contains(e.relatedTarget)) item.classList.remove('drag-over');
+  });
+  item.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (!dragToolId || dragToolId === tool.id) return;
+    item.classList.remove('drag-over');
+    const fromIdx = tools.findIndex(t => t.id === dragToolId);
+    const toIdx   = tools.findIndex(t => t.id === tool.id);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = tools.splice(fromIdx, 1);
+    tools.splice(toIdx, 0, moved);
+    await window.electronAPI.saveTools(tools);
+    renderToolList();
+  });
+
   return item;
 }
 
@@ -284,6 +328,7 @@ function selectTool(toolId) {
 
   commandInput.value = tool.command || '';
   cwdInput.value     = tool.cwd     || '';
+  cmdHistoryIdx.set(toolId, -1);
   renderOutputForTool(toolId);
   renderOutputTabs();
   updateButtons();
@@ -307,6 +352,15 @@ btnStart.addEventListener('click', async () => {
   const command = commandInput.value.trim();
   const cwd     = cwdInput.value.trim() || undefined;
   if (!command) return;
+
+  // Push to per-tool command history
+  const hist = cmdHistory.get(selectedToolId) || [];
+  if (!hist.length || hist[hist.length - 1] !== command) {
+    hist.push(command);
+    if (hist.length > 50) hist.shift();
+    cmdHistory.set(selectedToolId, hist);
+  }
+  cmdHistoryIdx.set(selectedToolId, -1);
 
   // Clear output & reset ANSI state for this tool
   toolOutputs.set(selectedToolId, []);
@@ -345,9 +399,32 @@ btnStop.addEventListener('click', async () => {
   }
 });
 
-// Also trigger Start on Enter key in command input
+// Command input: Enter to run, Up/Down arrows to browse history
 commandInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !btnStart.disabled) btnStart.click();
+  if (e.key === 'Enter') { if (!btnStart.disabled) btnStart.click(); return; }
+  if (!selectedToolId) return;
+  const hist = cmdHistory.get(selectedToolId) || [];
+  if (!hist.length) return;
+  let idx = cmdHistoryIdx.get(selectedToolId) ?? -1;
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const newIdx = idx === -1 ? hist.length - 1 : Math.max(0, idx - 1);
+    cmdHistoryIdx.set(selectedToolId, newIdx);
+    commandInput.value = hist[newIdx];
+    updateButtons();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (idx === -1) return;
+    const newIdx = idx + 1;
+    if (newIdx >= hist.length) {
+      cmdHistoryIdx.set(selectedToolId, -1);
+      commandInput.value = '';
+    } else {
+      cmdHistoryIdx.set(selectedToolId, newIdx);
+      commandInput.value = hist[newIdx];
+    }
+    updateButtons();
+  }
 });
 
 // Re-evaluate Start button when command text changes

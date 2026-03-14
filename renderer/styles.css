@@ -163,6 +163,23 @@ body {
 }
 .tool-item:hover .tool-item-actions { display: flex; }
 
+/* drag handle */
+.drag-handle {
+  flex-shrink: 0;
+  color: #3a3a3a;
+  cursor: grab;
+  user-select: none;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.12s;
+}
+.tool-item:hover .drag-handle { color: #777; }
+.drag-handle:active            { cursor: grabbing; }
+/* drag states */
+.tool-item.dragging  { opacity: 0.4; }
+.tool-item.drag-over { border-style: dashed; border-color: var(--accent) !important; background: #1e2a3f !important; }
+
 .btn-edit-tool,
 .btn-delete-tool {
   width: 22px;
