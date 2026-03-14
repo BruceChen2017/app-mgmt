@@ -262,7 +262,7 @@ function createToolItem(tool) {
   item.innerHTML = `
     <span class="drag-handle" title="拖拽排序">⠿</span>
     <div class="tool-item-content">
-      <div class="tool-item-name">${escHtml(tool.name)}</div>
+      <div class="tool-item-name" title="${escHtml(tool.name)}">${escHtml(tool.name)}</div>
       <div class="tool-item-desc">${escHtml(tool.description || '')}</div>
     </div>
     ${dot}
@@ -344,10 +344,77 @@ function selectTool(toolId) {
   cwdInput.value     = tool.cwd     || '';
   markCommandClean();
   cmdHistoryIdx.set(toolId, -1);
+  renderEnvDisplay(tool);
   renderOutputForTool(toolId);
   renderOutputTabs();
   updateButtons();
   renderToolList();
+}
+
+function renderEnvDisplay(tool) {
+  const envDisplay = document.getElementById('env-display');
+  envDisplay.classList.remove('hidden');
+  envDisplay.innerHTML = '';
+
+  const label = document.createElement('span');
+  label.className = 'env-label';
+  label.textContent = 'Env';
+  envDisplay.appendChild(label);
+
+  const pairsContainer = document.createElement('div');
+  pairsContainer.className = 'env-pairs';
+  const vars = Array.isArray(tool.envVars) ? tool.envVars : [];
+  vars.forEach(({ key, value }) => pairsContainer.appendChild(createEnvPair(key, value)));
+  envDisplay.appendChild(pairsContainer);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'env-add-btn';
+  addBtn.textContent = '+';
+  addBtn.title = '添加环境变量';
+  addBtn.addEventListener('click', () => {
+    const pair = createEnvPair('', '');
+    pairsContainer.appendChild(pair);
+    markCommandDirty();
+    pair.querySelector('.env-key-input').focus();
+  });
+  envDisplay.appendChild(addBtn);
+}
+
+function createEnvPair(key, value) {
+  const pair = document.createElement('div');
+  pair.className = 'env-pair';
+
+  const keyInput = document.createElement('input');
+  keyInput.className = 'env-key-input';
+  keyInput.value = key;
+  keyInput.placeholder = 'KEY';
+  keyInput.spellcheck = false;
+  keyInput.autocomplete = 'off';
+  keyInput.addEventListener('input', markCommandDirty);
+
+  const eq = document.createElement('span');
+  eq.className = 'env-eq';
+  eq.textContent = '=';
+
+  const valInput = document.createElement('input');
+  valInput.className = 'env-val-input';
+  valInput.value = value;
+  valInput.placeholder = 'VALUE';
+  valInput.spellcheck = false;
+  valInput.autocomplete = 'off';
+  valInput.addEventListener('input', markCommandDirty);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'env-remove-btn';
+  removeBtn.textContent = '×';
+  removeBtn.title = '删除';
+  removeBtn.addEventListener('click', () => { pair.remove(); markCommandDirty(); });
+
+  pair.appendChild(keyInput);
+  pair.appendChild(eq);
+  pair.appendChild(valInput);
+  pair.appendChild(removeBtn);
+  return pair;
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────────────
@@ -367,6 +434,11 @@ btnStart.addEventListener('click', async () => {
   const command = commandInput.value.trim();
   const cwd     = cwdInput.value.trim() || undefined;
   if (!command) return;
+
+  // Auto-save command/cwd if dirty
+  if (!btnSaveCmd.classList.contains('hidden')) {
+    await saveCommandToTool();
+  }
 
   // Push to per-tool command history
   const hist = cmdHistory.get(selectedToolId) || [];
@@ -452,9 +524,16 @@ function markCommandDirty() {
   if (!selectedToolId) return;
   const tool = tools.find(t => t.id === selectedToolId);
   if (!tool) return;
-  const changed = commandInput.value !== (tool.command || '') ||
-                  cwdInput.value     !== (tool.cwd     || '');
-  if (changed) {
+  const cmdChanged = commandInput.value !== (tool.command || '') ||
+                     cwdInput.value     !== (tool.cwd     || '');
+  const savedVars = (tool.envVars || []).filter(v => v.key);
+  const envDisplay = document.getElementById('env-display');
+  const currentVars = Array.from(envDisplay.querySelectorAll('.env-pair'))
+    .map(p => { const ins = p.querySelectorAll('input'); return { key: ins[0].value.trim(), value: ins[1].value.trim() }; })
+    .filter(v => v.key);
+  const envChanged = currentVars.length !== savedVars.length ||
+    currentVars.some((v, i) => v.key !== savedVars[i].key || v.value !== savedVars[i].value);
+  if (cmdChanged || envChanged) {
     commandInput.classList.add('dirty');
     cwdInput.classList.add('dirty');
     btnSaveCmd.classList.remove('hidden');
@@ -484,6 +563,13 @@ async function saveCommandToTool() {
   if (!tool) return;
   tool.command = commandInput.value.trim();
   tool.cwd     = cwdInput.value.trim();
+  const envDisplay = document.getElementById('env-display');
+  tool.envVars = Array.from(envDisplay.querySelectorAll('.env-pair'))
+    .map(pair => {
+      const inputs = pair.querySelectorAll('input');
+      return { key: inputs[0].value.trim(), value: inputs[1].value.trim() };
+    })
+    .filter(v => v.key);
   await window.electronAPI.saveTools(tools);
   markCommandClean();
   renderToolList();
@@ -605,6 +691,28 @@ function renderOutputTabs() {
     name.className = 'tab-name';
     name.textContent = tool.name;
     tab.appendChild(name);
+    // close button (only shown when not running)
+    if (!isRunning) {
+      const closeBtn = document.createElement('span');
+      closeBtn.className = 'tab-close';
+      closeBtn.textContent = '×';
+      closeBtn.title = '关闭';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toolOutputs.delete(toolId);
+        toolAnsiStates.delete(toolId);
+        if (activeOutputToolId === toolId) {
+          activeOutputToolId = selectedToolId !== toolId ? selectedToolId : null;
+          if (activeOutputToolId) {
+            renderOutputForTool(activeOutputToolId);
+          } else {
+            outputArea.innerHTML = '<span class="output-placeholder">shell output after command executed</span>';
+          }
+        }
+        renderOutputTabs();
+      });
+      tab.appendChild(closeBtn);
+    }
     tab.addEventListener('click', () => {
       selectTool(toolId);
     });
@@ -625,6 +733,8 @@ modalOverlay.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
   if (e.key === 'Enter' && !modalOverlay.classList.contains('hidden')) {
+    // Only trigger save when focus is NOT inside env-table inputs
+    if (e.target.closest('#env-table')) return;
     e.preventDefault();
     saveTool();
   }
@@ -757,6 +867,7 @@ async function saveTool() {
     if (tool) {
       commandInput.value = tool.command || '';
       cwdInput.value     = tool.cwd     || '';
+      renderEnvDisplay(tool);
     }
     updateButtons();
   }
@@ -778,6 +889,9 @@ async function deleteTool(toolId) {
     selectedToolId = null;
     commandInput.value = '';
     cwdInput.value = '';
+    const envDisplay = document.getElementById('env-display');
+    envDisplay.classList.add('hidden');
+    envDisplay.innerHTML = '';
     updateButtons();
   }
   if (activeOutputToolId === toolId) {
