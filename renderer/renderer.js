@@ -143,6 +143,8 @@ const toolGroupInput = document.getElementById('tool-group');
 const leftPanel      = document.querySelector('.left-panel');
 const resizeHandle   = document.querySelector('.resize-handle');
 const toolSearchInput = document.getElementById('tool-search');
+const envTableEl     = document.getElementById('env-table');
+const btnAddEnv      = document.getElementById('btn-add-env');
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
@@ -320,7 +322,9 @@ btnStart.addEventListener('click', async () => {
   const displayCwd = cwd ? ` (cwd: ${cwd})` : '';
   pushAndDisplay(selectedToolId, `$ ${command}${displayCwd}\n`, 'system');
 
-  const result = await window.electronAPI.startCommand(selectedToolId, command, cwd);
+  const activeTool = tools.find(t => t.id === selectedToolId);
+  const envVars = activeTool && Array.isArray(activeTool.envVars) ? activeTool.envVars : [];
+  const result = await window.electronAPI.startCommand(selectedToolId, command, cwd, envVars);
   if (!result.success) {
     runningTools.delete(selectedToolId);
     pushAndDisplay(selectedToolId, `Error: ${result.error}\n`, 'stderr');
@@ -471,6 +475,8 @@ function renderOutputTabs() {
   });
 }
 // ── Modal (Add / Edit) ────────────────────────────────────────────────────────
+btnAddEnv.addEventListener('click', () => { const k = addEnvRow(); k.focus(); });
+
 document.getElementById('btn-add-tool').addEventListener('click', openAddModal);
 document.getElementById('btn-close-modal').addEventListener('click', closeModal);
 document.getElementById('btn-cancel').addEventListener('click', closeModal);
@@ -487,6 +493,43 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function addEnvRow(key = '', value = '') {
+  const row = document.createElement('div');
+  row.className = 'env-row';
+  const keyIn = document.createElement('input');
+  keyIn.className = 'env-key';
+  keyIn.placeholder = 'KEY';
+  keyIn.value = key;
+  keyIn.autocomplete = 'off';
+  keyIn.spellcheck = false;
+  const valIn = document.createElement('input');
+  valIn.className = 'env-val';
+  valIn.placeholder = '值';
+  valIn.value = value;
+  valIn.autocomplete = 'off';
+  valIn.spellcheck = false;
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-del-env';
+  delBtn.type = 'button';
+  delBtn.title = '删除';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => row.remove());
+  row.appendChild(keyIn);
+  row.appendChild(valIn);
+  row.appendChild(delBtn);
+  envTableEl.appendChild(row);
+  return keyIn;
+}
+
+function collectEnvVars() {
+  return [...envTableEl.querySelectorAll('.env-row')]
+    .map(row => ({
+      key:   row.querySelector('.env-key').value.trim(),
+      value: row.querySelector('.env-val').value,
+    }))
+    .filter(e => e.key !== '');
+}
+
 function openAddModal() {
   editingToolId = null;
   modalTitle.textContent = '添加工具';
@@ -495,6 +538,7 @@ function openAddModal() {
   toolCmdInput.value   = '';
   toolCwdInput.value   = '';
   toolGroupInput.value = '';
+  envTableEl.innerHTML = '';
   refreshGroupDatalist();
   clearFormErrors();
   openModal();
@@ -511,6 +555,8 @@ function openEditModal(toolId) {
   toolCmdInput.value   = tool.command     || '';
   toolCwdInput.value   = tool.cwd         || '';
   toolGroupInput.value = tool.group       || '';
+  envTableEl.innerHTML = '';
+  (tool.envVars || []).forEach(({ key, value }) => addEnvRow(key, value));
   refreshGroupDatalist();
   clearFormErrors();
   openModal();
@@ -537,6 +583,7 @@ async function saveTool() {
   const command     = toolCmdInput.value.trim();
   const cwd         = toolCwdInput.value.trim();
   const group       = toolGroupInput.value.trim();
+  const envVars     = collectEnvVars();
 
   let valid = true;
   clearFormErrors();
@@ -555,11 +602,11 @@ async function saveTool() {
 
   if (editingToolId) {
     const tool = tools.find((t) => t.id === editingToolId);
-    if (tool) Object.assign(tool, { name, description, command, cwd, group });
+    if (tool) Object.assign(tool, { name, description, command, cwd, group, envVars });
   } else {
     tools.push({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name, description, command, cwd, group,
+      name, description, command, cwd, group, envVars,
     });
   }
 

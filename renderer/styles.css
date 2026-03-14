@@ -493,6 +493,56 @@ body {
 .form-group input.error     { border-color: var(--danger); }
 .form-group--mono input     { font-family: var(--font-mono); font-size: 12px; }
 
+.env-header { display: flex; align-items: center; justify-content: space-between; }
+.btn-add-env {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.btn-add-env:hover { border-color: var(--accent); color: var(--accent); }
+.env-table { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.env-row { display: flex; gap: 4px; align-items: center; }
+.env-row .env-key {
+  flex: 0 0 38%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 4px 6px;
+  outline: none;
+}
+.env-row .env-val {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 4px 6px;
+  outline: none;
+}
+.env-row .env-key:focus,
+.env-row .env-val:focus { border-color: var(--accent); }
+.btn-del-env {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.btn-del-env:hover { color: var(--danger); }
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;

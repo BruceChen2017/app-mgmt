@@ -3,8 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   loadTools: () => ipcRenderer.invoke('load-tools'),
   saveTools: (tools) => ipcRenderer.invoke('save-tools', tools),
-  startCommand: (toolId, command, cwd) =>
-    ipcRenderer.invoke('start-command', { toolId, command, cwd }),
+  startCommand: (toolId, command, cwd, envVars) =>
+    ipcRenderer.invoke('start-command', { toolId, command, cwd, envVars }),
   stopCommand: (toolId) =>
     ipcRenderer.invoke('stop-command', { toolId }),
   onProcessOutput: (callback) =>

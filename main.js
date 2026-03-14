@@ -68,7 +68,7 @@ ipcMain.handle('save-tools', (_event, tools) => {
   return true;
 });
 
-ipcMain.handle('start-command', (_event, { toolId, command, cwd }) => {
+ipcMain.handle('start-command', (_event, { toolId, command, cwd, envVars }) => {
   if (runningProcesses[toolId]) {
     return { success: false, error: 'Already running' };
   }
@@ -82,10 +82,18 @@ ipcMain.handle('start-command', (_event, { toolId, command, cwd }) => {
     effectiveCwd = resolved;
   }
 
+  const spawnEnv = { ...process.env };
+  if (Array.isArray(envVars)) {
+    envVars.forEach(({ key, value }) => {
+      if (key && key.trim()) spawnEnv[key.trim()] = value ?? '';
+    });
+  }
+
   try {
     const child = spawn(command, [], {
       shell: true,
       cwd: effectiveCwd,
+      env: spawnEnv,
       windowsHide: true,
     });
 
