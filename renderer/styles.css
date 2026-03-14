@@ -63,6 +63,29 @@ body {
 .panel-header-actions { display: flex; gap: 4px; align-items: center; }
 .btn-io { font-size: 13px; }
 
+.search-bar {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.search-bar input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+}
+.search-bar input:focus {
+  border-color: var(--accent);
+}
+.search-bar input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
 .tool-list {
   flex: 1;
   overflow-y: auto;

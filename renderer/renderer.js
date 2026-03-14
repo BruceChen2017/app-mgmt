@@ -121,6 +121,8 @@ const toolAnsiStates = new Map();
 let activeOutputToolId = null;
 /** Collapsed group names */
 const collapsedGroups  = new Set();
+/** Current search query */
+let searchQuery = '';
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const toolListEl     = document.getElementById('tool-list');
@@ -140,11 +142,17 @@ const toolCwdInput   = document.getElementById('tool-cwd');
 const toolGroupInput = document.getElementById('tool-group');
 const leftPanel      = document.querySelector('.left-panel');
 const resizeHandle   = document.querySelector('.resize-handle');
+const toolSearchInput = document.getElementById('tool-search');
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   tools = await window.electronAPI.loadTools();
   renderToolList();
+
+  toolSearchInput.addEventListener('input', () => {
+    searchQuery = toolSearchInput.value;
+    renderToolList();
+  });
 
   window.electronAPI.onProcessOutput(({ toolId, data, stream }) => {
     pushAndDisplay(toolId, data, stream);
@@ -163,6 +171,14 @@ async function init() {
 function renderToolList() {
   toolListEl.innerHTML = '';
 
+  const q = searchQuery.trim().toLowerCase();
+  const visibleTools = q
+    ? tools.filter(t =>
+        (t.name        || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q) ||
+        (t.command     || '').toLowerCase().includes(q))
+    : tools;
+
   if (tools.length === 0) {
     toolListEl.innerHTML =
       '<div class="tool-list-empty">还没有工具<br>' +
@@ -170,10 +186,15 @@ function renderToolList() {
     return;
   }
 
+  if (visibleTools.length === 0) {
+    toolListEl.innerHTML = '<div class="tool-list-empty">没有匹配的工具</div>';
+    return;
+  }
+
   // Build group map: named groups α-sorted first, ungrouped at bottom
   const NO_GROUP = '';
   const groupMap  = new Map();
-  tools.forEach(tool => {
+  visibleTools.forEach(tool => {
     const g = (tool.group || '').trim();
     if (!groupMap.has(g)) groupMap.set(g, []);
     groupMap.get(g).push(tool);
@@ -189,7 +210,8 @@ function renderToolList() {
       groupTools.forEach(tool => toolListEl.appendChild(createToolItem(tool)));
       return;
     }
-    const isCollapsed = collapsedGroups.has(groupName);
+    // Expand groups automatically when a search is active
+    const isCollapsed = !searchQuery.trim() && collapsedGroups.has(groupName);
     const section = document.createElement('div');
     section.className = 'tool-group';
 
