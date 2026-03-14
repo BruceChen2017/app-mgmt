@@ -443,9 +443,7 @@ function renderOutputTabs() {
     name.textContent = tool.name;
     tab.appendChild(name);
     tab.addEventListener('click', () => {
-      activeOutputToolId = toolId;
-      renderOutputTabs();
-      renderOutputForTool(toolId);
+      selectTool(toolId);
     });
     outputTabsEl.appendChild(tab);
   });
