@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Electron build output
+dist/
+out/
+release/
+
+# Electron userData (local tool configs, not for source control)
+# (stored in OS AppData, not in project dir — listed here for clarity)
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build cache
+.cache/
+.parcel-cache/
+
+# Temporary files
+tmp/
+temp/

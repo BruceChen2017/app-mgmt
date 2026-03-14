@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>Tool Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+
+    <!-- ── Left Panel: tool list ───────────────────────────────────────── -->
+    <div class="left-panel">
+      <div class="panel-header">
+        <span class="panel-title">Tools</span>
+        <button class="btn-icon btn-add" id="btn-add-tool" title="添加工具">+</button>
+      </div>
+      <div class="tool-list" id="tool-list">
+        <!-- Rendered by renderer.js -->
+      </div>
+    </div>
+
+    <!-- ── Dashed divider ─────────────────────────────────────────────── -->
+    <div class="divider"></div>
+
+    <!-- ── Right Panel: command + output ──────────────────────────────── -->
+    <div class="right-panel">
+
+      <div class="command-section">
+        <div class="command-label">Command</div>
+        <input
+          type="text"
+          id="command-input"
+          class="command-input"
+          placeholder="选择一个工具，或直接输入命令…"
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <div class="command-buttons">
+          <button class="btn-start" id="btn-start" disabled>Start</button>
+          <button class="btn-stop"  id="btn-stop"  disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="output-section">
+        <div class="output-header">
+          <span class="output-title">Output</span>
+          <button class="btn-clear" id="btn-clear-output" title="清空输出">Clear</button>
+        </div>
+        <div class="output-area" id="output-area">
+          <span class="output-placeholder">shell output after command executed</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Modal: Add / Edit tool ─────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 id="modal-title">Add Tool</h2>
+        <button class="btn-icon" id="btn-close-modal" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="tool-name">名称</label>
+          <input type="text" id="tool-name" placeholder="工具名称" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="tool-description">描述</label>
+          <textarea id="tool-description" rows="2" placeholder="简短描述（可选）"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="tool-command">命令</label>
+          <input type="text" id="tool-command" placeholder="例如：npm start、python app.py" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel">取消</button>
+        <button class="btn-primary"   id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
