@@ -60,6 +60,9 @@ body {
   color: var(--text-dim);
 }
 
+.panel-header-actions { display: flex; gap: 4px; align-items: center; }
+.btn-io { font-size: 13px; }
+
 .tool-list {
   flex: 1;
   overflow-y: auto;
@@ -154,7 +157,34 @@ body {
 }
 .btn-edit-tool:hover   { background: var(--accent); color: #fff; }
 .btn-delete-tool:hover { background: var(--danger);  color: #fff; }
-
+/* ── Tool groups ────────────────────────────────────────────────────── */
+.tool-group { margin-bottom: 2px; }
+.tool-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  user-select: none;
+  transition: background 0.1s;
+}
+.tool-group-header:hover { background: var(--border); }
+.tool-group-arrow { font-size: 9px; flex-shrink: 0; }
+.tool-group-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-group-count {
+  background: #3a3a3a;
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #888;
+}
+.tool-group-body { padding-left: 6px; }
 /* ── Resize handle ───────────────────────────────────────────────────────── */
 .resize-handle {
   width: 8px;
@@ -326,6 +356,44 @@ body {
 .output-text        { color: #d4d4d4; }
 .output-stderr      { color: #f48771; }
 .output-system      { color: #569cd6; }
+
+/* ── Output tabs ──────────────────────────────────────────────────── */
+.output-tabs {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 2px;
+}
+.output-tabs::-webkit-scrollbar { display: none; }
+.output-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: var(--surface2);
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+.output-tab:hover  { background: var(--border); color: var(--text); }
+.output-tab.active { background: var(--accent); color: #fff; }
+.tab-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  flex-shrink: 0;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.tab-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Icon button (shared) ────────────────────────────────────────────────── */
 .btn-icon {

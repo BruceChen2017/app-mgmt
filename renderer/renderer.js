@@ -117,9 +117,14 @@ const runningTools   = new Set();
 const toolOutputs    = new Map();
 /** Per-tool ANSI parser state for live append */
 const toolAnsiStates = new Map();
+/** Output tab currently shown (can differ from selectedToolId) */
+let activeOutputToolId = null;
+/** Collapsed group names */
+const collapsedGroups  = new Set();
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const toolListEl     = document.getElementById('tool-list');
+const outputTabsEl   = document.getElementById('output-tabs');
 const commandInput   = document.getElementById('command-input');
 const cwdInput       = document.getElementById('cwd-input');
 const btnStart       = document.getElementById('btn-start');
@@ -132,6 +137,7 @@ const toolNameInput  = document.getElementById('tool-name');
 const toolDescInput  = document.getElementById('tool-description');
 const toolCmdInput   = document.getElementById('tool-command');
 const toolCwdInput   = document.getElementById('tool-cwd');
+const toolGroupInput = document.getElementById('tool-group');
 const leftPanel      = document.querySelector('.left-panel');
 const resizeHandle   = document.querySelector('.resize-handle');
 
@@ -148,6 +154,7 @@ async function init() {
     runningTools.delete(toolId);
     pushAndDisplay(toolId, `\n[进程已退出，退出码 ${code}]\n`, 'system');
     if (toolId === selectedToolId) updateButtons();
+    renderOutputTabs();
     renderToolList();
   });
 }
@@ -163,56 +170,98 @@ function renderToolList() {
     return;
   }
 
-  tools.forEach((tool) => {
-    const isRunning  = runningTools.has(tool.id);
-    const isSelected = tool.id === selectedToolId;
-
-    const item = document.createElement('div');
-    item.className =
-      'tool-item' +
-      (isSelected ? ' selected' : '') +
-      (isRunning  ? ' running'  : '');
-    item.dataset.id = tool.id;
-
-    const dot = isRunning
-      ? '<span class="running-dot" title="运行中"></span>'
-      : '';
-
-    item.innerHTML = `
-      <div class="tool-item-content">
-        <div class="tool-item-name">${escHtml(tool.name)}</div>
-        <div class="tool-item-desc">${escHtml(tool.description || '')}</div>
-      </div>
-      ${dot}
-      <div class="tool-item-actions">
-        <button class="btn-edit-tool"   title="编辑">✎</button>
-        <button class="btn-delete-tool" title="删除">✕</button>
-      </div>
-    `;
-
-    item.querySelector('.tool-item-content').addEventListener('click', () => selectTool(tool.id));
-    item.querySelector('.btn-edit-tool').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openEditModal(tool.id);
-    });
-    item.querySelector('.btn-delete-tool').addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteTool(tool.id);
-    });
-
-    toolListEl.appendChild(item);
+  // Build group map: named groups α-sorted first, ungrouped at bottom
+  const NO_GROUP = '';
+  const groupMap  = new Map();
+  tools.forEach(tool => {
+    const g = (tool.group || '').trim();
+    if (!groupMap.has(g)) groupMap.set(g, []);
+    groupMap.get(g).push(tool);
   });
+  const sortedGroups = [...groupMap.keys()]
+    .filter(g => g !== NO_GROUP)
+    .sort((a, b) => a.localeCompare(b));
+  if (groupMap.has(NO_GROUP)) sortedGroups.push(NO_GROUP);
+
+  sortedGroups.forEach(groupName => {
+    const groupTools = groupMap.get(groupName);
+    if (!groupName) {
+      groupTools.forEach(tool => toolListEl.appendChild(createToolItem(tool)));
+      return;
+    }
+    const isCollapsed = collapsedGroups.has(groupName);
+    const section = document.createElement('div');
+    section.className = 'tool-group';
+
+    const header = document.createElement('div');
+    header.className = 'tool-group-header';
+    header.innerHTML =
+      `<span class="tool-group-arrow">${isCollapsed ? '▶' : '▼'}</span>` +
+      `<span class="tool-group-name">${escHtml(groupName)}</span>` +
+      `<span class="tool-group-count">${groupTools.length}</span>`;
+    header.addEventListener('click', () => {
+      if (collapsedGroups.has(groupName)) collapsedGroups.delete(groupName);
+      else collapsedGroups.add(groupName);
+      renderToolList();
+    });
+    section.appendChild(header);
+
+    if (!isCollapsed) {
+      const body = document.createElement('div');
+      body.className = 'tool-group-body';
+      groupTools.forEach(tool => body.appendChild(createToolItem(tool)));
+      section.appendChild(body);
+    }
+    toolListEl.appendChild(section);
+  });
+}
+
+function createToolItem(tool) {
+  const isRunning  = runningTools.has(tool.id);
+  const isSelected = tool.id === selectedToolId;
+  const item = document.createElement('div');
+  item.className =
+    'tool-item' +
+    (isSelected ? ' selected' : '') +
+    (isRunning  ? ' running'  : '');
+  item.dataset.id = tool.id;
+
+  const dot = isRunning ? '<span class="running-dot" title="运行中"></span>' : '';
+  item.innerHTML = `
+    <div class="tool-item-content">
+      <div class="tool-item-name">${escHtml(tool.name)}</div>
+      <div class="tool-item-desc">${escHtml(tool.description || '')}</div>
+    </div>
+    ${dot}
+    <div class="tool-item-actions">
+      <button class="btn-edit-tool"   title="编辑">✎</button>
+      <button class="btn-delete-tool" title="删除">✕</button>
+    </div>
+  `;
+
+  item.querySelector('.tool-item-content').addEventListener('click', () => selectTool(tool.id));
+  item.querySelector('.btn-edit-tool').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openEditModal(tool.id);
+  });
+  item.querySelector('.btn-delete-tool').addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteTool(tool.id);
+  });
+  return item;
 }
 
 // ── Tool selection ────────────────────────────────────────────────────────────
 function selectTool(toolId) {
-  selectedToolId = toolId;
+  selectedToolId     = toolId;
+  activeOutputToolId = toolId;
   const tool = tools.find((t) => t.id === toolId);
   if (!tool) return;
 
   commandInput.value = tool.command || '';
   cwdInput.value     = tool.cwd     || '';
   renderOutputForTool(toolId);
+  renderOutputTabs();
   updateButtons();
   renderToolList();
 }
@@ -238,9 +287,11 @@ btnStart.addEventListener('click', async () => {
   // Clear output & reset ANSI state for this tool
   toolOutputs.set(selectedToolId, []);
   toolAnsiStates.set(selectedToolId, freshState());
+  activeOutputToolId = selectedToolId;
   outputArea.innerHTML = '';
 
   runningTools.add(selectedToolId);
+  renderOutputTabs();
   updateButtons();
   renderToolList();
 
@@ -262,6 +313,7 @@ btnStop.addEventListener('click', async () => {
   if (result.success) {
     runningTools.delete(selectedToolId);
     pushAndDisplay(selectedToolId, '\n[进程已停止]\n', 'system');
+    renderOutputTabs();
     updateButtons();
     renderToolList();
   }
@@ -276,12 +328,14 @@ commandInput.addEventListener('keydown', (e) => {
 commandInput.addEventListener('input', updateButtons);
 
 btnClearOutput.addEventListener('click', () => {
-  if (selectedToolId) {
-    toolOutputs.set(selectedToolId, []);
-    toolAnsiStates.set(selectedToolId, freshState());
+  const clearId = activeOutputToolId || selectedToolId;
+  if (clearId) {
+    toolOutputs.set(clearId, []);
+    toolAnsiStates.set(clearId, freshState());
   }
   outputArea.innerHTML =
     '<span class="output-placeholder">shell output after command executed</span>';
+  renderOutputTabs();
 });
 
 // ── Output system ─────────────────────────────────────────────────────────────
@@ -301,19 +355,21 @@ function pushAndDisplay(toolId, rawText, stream) {
 
   if (!toolOutputs.has(toolId)) toolOutputs.set(toolId, []);
   const buf = toolOutputs.get(toolId);
+  const wasEmpty = buf.length === 0;
   buf.push(html);
 
-  // ── Buffer size limit ───────────────────────────────────────────────────────
+  // ── Buffer size limit ──────────────────────────────────────────────────────
   if (buf.length > MAX_BUFFER_CHUNKS) {
     const excess = buf.length - MAX_BUFFER_CHUNKS;
     buf.splice(0, excess);
-    if (toolId === selectedToolId) {
+    if (toolId === activeOutputToolId) {
       const chunks = outputArea.querySelectorAll('.output-chunk');
       for (let i = 0; i < Math.min(excess, chunks.length); i++) chunks[i].remove();
     }
   }
 
-  if (toolId === selectedToolId) {
+  if (wasEmpty) renderOutputTabs();
+  if (toolId === activeOutputToolId) {
     const placeholder = outputArea.querySelector('.output-placeholder');
     if (placeholder) placeholder.remove();
     outputArea.insertAdjacentHTML('beforeend', html);
@@ -358,7 +414,42 @@ document.addEventListener('mouseup', () => {
   document.body.style.cursor     = '';
   document.body.style.userSelect = '';
 });
+// ── Output tabs ─────────────────────────────────────────────────────────
+function renderOutputTabs() {
+  outputTabsEl.innerHTML = '';
+  const seen   = new Set();
+  const tabIds = [];
+  const candidates = [
+    selectedToolId,
+    ...runningTools,
+    ...[...toolOutputs.keys()].filter(id => (toolOutputs.get(id) || []).length > 0),
+  ];
+  candidates.forEach(id => { if (id && !seen.has(id)) { seen.add(id); tabIds.push(id); } });
 
+  tabIds.forEach(toolId => {
+    const tool = tools.find(t => t.id === toolId);
+    if (!tool) return;
+    const isActive  = toolId === activeOutputToolId;
+    const isRunning = runningTools.has(toolId);
+    const tab = document.createElement('div');
+    tab.className = 'output-tab' + (isActive ? ' active' : '');
+    if (isRunning) {
+      const dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      tab.appendChild(dot);
+    }
+    const name = document.createElement('span');
+    name.className = 'tab-name';
+    name.textContent = tool.name;
+    tab.appendChild(name);
+    tab.addEventListener('click', () => {
+      activeOutputToolId = toolId;
+      renderOutputTabs();
+      renderOutputForTool(toolId);
+    });
+    outputTabsEl.appendChild(tab);
+  });
+}
 // ── Modal (Add / Edit) ────────────────────────────────────────────────────────
 document.getElementById('btn-add-tool').addEventListener('click', openAddModal);
 document.getElementById('btn-close-modal').addEventListener('click', closeModal);
@@ -379,10 +470,12 @@ document.addEventListener('keydown', (e) => {
 function openAddModal() {
   editingToolId = null;
   modalTitle.textContent = '添加工具';
-  toolNameInput.value = '';
-  toolDescInput.value = '';
-  toolCmdInput.value  = '';
-  toolCwdInput.value  = '';
+  toolNameInput.value  = '';
+  toolDescInput.value  = '';
+  toolCmdInput.value   = '';
+  toolCwdInput.value   = '';
+  toolGroupInput.value = '';
+  refreshGroupDatalist();
   clearFormErrors();
   openModal();
   toolNameInput.focus();
@@ -393,10 +486,12 @@ function openEditModal(toolId) {
   if (!tool) return;
   editingToolId = toolId;
   modalTitle.textContent = '编辑工具';
-  toolNameInput.value = tool.name        || '';
-  toolDescInput.value = tool.description || '';
-  toolCmdInput.value  = tool.command     || '';
-  toolCwdInput.value  = tool.cwd         || '';
+  toolNameInput.value  = tool.name        || '';
+  toolDescInput.value  = tool.description || '';
+  toolCmdInput.value   = tool.command     || '';
+  toolCwdInput.value   = tool.cwd         || '';
+  toolGroupInput.value = tool.group       || '';
+  refreshGroupDatalist();
   clearFormErrors();
   openModal();
   toolNameInput.focus();
@@ -404,6 +499,12 @@ function openEditModal(toolId) {
 
 function openModal()  { modalOverlay.classList.remove('hidden'); }
 function closeModal() { modalOverlay.classList.add('hidden'); }
+
+function refreshGroupDatalist() {
+  const dl     = document.getElementById('group-datalist');
+  const groups = [...new Set(tools.map(t => t.group || '').filter(Boolean))].sort();
+  dl.innerHTML = groups.map(g => `<option value="${escHtml(g)}">`).join('');
+}
 
 function clearFormErrors() {
   toolNameInput.classList.remove('error');
@@ -415,6 +516,7 @@ async function saveTool() {
   const description = toolDescInput.value.trim();
   const command     = toolCmdInput.value.trim();
   const cwd         = toolCwdInput.value.trim();
+  const group       = toolGroupInput.value.trim();
 
   let valid = true;
   clearFormErrors();
@@ -433,11 +535,11 @@ async function saveTool() {
 
   if (editingToolId) {
     const tool = tools.find((t) => t.id === editingToolId);
-    if (tool) Object.assign(tool, { name, description, command, cwd });
+    if (tool) Object.assign(tool, { name, description, command, cwd, group });
   } else {
     tools.push({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name, description, command, cwd,
+      name, description, command, cwd, group,
     });
   }
 
@@ -472,10 +574,14 @@ async function deleteTool(toolId) {
     selectedToolId = null;
     commandInput.value = '';
     cwdInput.value = '';
-    outputArea.innerHTML =
-      '<span class="output-placeholder">shell output after command executed</span>';
     updateButtons();
   }
+  if (activeOutputToolId === toolId) {
+    activeOutputToolId = null;
+    outputArea.innerHTML =
+      '<span class="output-placeholder">shell output after command executed</span>';
+  }
+  renderOutputTabs();
   renderToolList();
 }
 
@@ -487,6 +593,38 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ── Import / Export ───────────────────────────────────────────────────────────
+document.getElementById('btn-export-tools').addEventListener('click', async () => {
+  const result = await window.electronAPI.exportTools(tools);
+  if (!result.success && !result.canceled) alert(`导出失败: ${result.error}`);
+});
+
+document.getElementById('btn-import-tools').addEventListener('click', async () => {
+  const result = await window.electronAPI.importTools();
+  if (result.canceled) return;
+  if (!result.success) { alert(`导入失败: ${result.error}`); return; }
+  const incoming = result.tools;
+  if (!incoming.length) { alert('配置文件中没有工具'); return; }
+  const doReplace = confirm(
+    `配置文件包含 ${incoming.length} 个工具。\n确定替换当前全部工具？\n\n（点取消则合并，筛除同名工具）`
+  );
+  if (doReplace) {
+    tools = incoming;
+  } else {
+    const existingNames = new Set(tools.map(t => t.name));
+    incoming.forEach(t => { if (!existingNames.has(t.name)) tools.push(t); });
+  }
+  await window.electronAPI.saveTools(tools);
+  selectedToolId     = null;
+  activeOutputToolId = null;
+  commandInput.value = '';
+  cwdInput.value     = '';
+  outputArea.innerHTML = '<span class="output-placeholder">shell output after command executed</span>';
+  updateButtons();
+  renderToolList();
+  renderOutputTabs();
+});
 
 // ── Kick off ──────────────────────────────────────────────────────────────────
 init();

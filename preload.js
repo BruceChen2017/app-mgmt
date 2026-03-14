@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process-output', (_event, data) => callback(data)),
   onProcessExit: (callback) =>
     ipcRenderer.on('process-exit', (_event, data) => callback(data)),
+  exportTools: (tools) => ipcRenderer.invoke('export-tools', tools),
+  importTools: ()      => ipcRenderer.invoke('import-tools'),
 });

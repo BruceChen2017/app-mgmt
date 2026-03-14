@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -152,6 +152,38 @@ ipcMain.handle('stop-command', (_event, { toolId }) => {
     return { success: true };
   } catch (err) {
     delete runningProcesses[toolId];
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('export-tools', async (_event, tools) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: '导出工具配置',
+    defaultPath: 'tools.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (canceled || !filePath) return { success: false, canceled: true };
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(tools, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('import-tools', async () => {
+  const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+    title: '导入工具配置',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths.length) return { success: false, canceled: true };
+  try {
+    const raw = fs.readFileSync(filePaths[0], 'utf-8');
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return { success: false, error: '无效的配置文件格式' };
+    return { success: true, tools: data };
+  } catch (err) {
     return { success: false, error: err.message };
   }
 });

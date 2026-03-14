@@ -14,7 +14,11 @@
     <div class="left-panel">
       <div class="panel-header">
         <span class="panel-title">Tools</span>
-        <button class="btn-icon btn-add" id="btn-add-tool" title="添加工具">+</button>
+        <div class="panel-header-actions">
+          <button class="btn-icon btn-io" id="btn-import-tools" title="导入配置">⬇</button>
+          <button class="btn-icon btn-io" id="btn-export-tools" title="导出配置">⬆</button>
+          <button class="btn-icon btn-add" id="btn-add-tool" title="添加工具">+</button>
+        </div>
       </div>
       <div class="tool-list" id="tool-list">
         <!-- Rendered by renderer.js -->
@@ -51,7 +55,7 @@
 
       <div class="output-section">
         <div class="output-header">
-          <span class="output-title">Output</span>
+          <div class="output-tabs" id="output-tabs"></div>
           <button class="btn-clear" id="btn-clear-output" title="清空输出">Clear</button>
         </div>
         <div class="output-area" id="output-area">
@@ -85,6 +89,11 @@
         <div class="form-group form-group--mono">
           <label for="tool-cwd">工作目录（cwd）</label>
           <input type="text" id="tool-cwd" placeholder="留空则使用系统默认目录" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="tool-group">分组</label>
+          <input type="text" id="tool-group" placeholder="分组名称（可选）" autocomplete="off" list="group-datalist">
+          <datalist id="group-datalist"></datalist>
         </div>
       </div>
       <div class="modal-footer">
