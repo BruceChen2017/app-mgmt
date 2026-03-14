@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -177,6 +177,32 @@ ipcMain.handle('export-tools', async (_event, tools) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// ── Output area context menu ────────────────────────────────────────────────
+ipcMain.on('show-output-context-menu', (event, selectedText) => {
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '\u590d\u5236\u9009\u4e2d\u5185\u5bb9',
+      enabled: !!selectedText,
+      click: () => clipboard.writeText(selectedText),
+    },
+    {
+      label: '\u590d\u5236\u5168\u90e8\u8f93\u51fa',
+      click: () => event.sender.send('output-context-action', 'copy-all'),
+    },
+    { type: 'separator' },
+    {
+      label: '\u5168\u9009',
+      click: () => event.sender.send('output-context-action', 'select-all'),
+    },
+    { type: 'separator' },
+    {
+      label: '\u6e05\u7a7a\u8f93\u51fa',
+      click: () => event.sender.send('output-context-action', 'clear'),
+    },
+  ]);
+  menu.popup({ window: BrowserWindow.fromWebContents(event.sender) });
 });
 
 ipcMain.handle('import-tools', async () => {

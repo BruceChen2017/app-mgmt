@@ -693,5 +693,24 @@ document.getElementById('btn-import-tools').addEventListener('click', async () =
   renderOutputTabs();
 });
 
+// ── Output area right-click context menu ─────────────────────────────────────
+outputArea.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  window.electronAPI.showOutputContextMenu(window.getSelection().toString());
+});
+
+window.electronAPI.onOutputContextAction((action) => {
+  if (action === 'select-all') {
+    const range = document.createRange();
+    range.selectNodeContents(outputArea);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  } else if (action === 'copy-all') {
+    navigator.clipboard.writeText(outputArea.innerText).catch(() => {});
+  } else if (action === 'clear') {
+    btnClearOutput.click();
+  }
+});
+
 // ── Kick off ──────────────────────────────────────────────────────────────────
 init();
