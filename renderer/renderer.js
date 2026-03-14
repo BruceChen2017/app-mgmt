@@ -595,6 +595,7 @@ function renderOutputTabs() {
     const isRunning = runningTools.has(toolId);
     const tab = document.createElement('div');
     tab.className = 'output-tab' + (isActive ? ' active' : '');
+    tab.title = tool.name;
     if (isRunning) {
       const dot = document.createElement('span');
       dot.className = 'tab-dot';
