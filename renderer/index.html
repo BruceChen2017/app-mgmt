@@ -15,6 +15,7 @@
       <div class="panel-header">
         <span class="panel-title">Tools</span>
         <div class="panel-header-actions">
+          <button class="btn-icon btn-io" id="btn-global-env" title="全局环境变量">🌍</button>
           <button class="btn-icon btn-io" id="btn-import-tools" title="导入配置">⬇</button>
           <button class="btn-icon btn-io" id="btn-export-tools" title="导出配置">⬆</button>
           <button class="btn-icon btn-add" id="btn-add-tool" title="添加工具">+</button>
@@ -58,10 +59,24 @@
         </div>
       </div>
 
+      <!-- ── Horizontal Resize handle ─────────────────────────────────────── -->
+      <div class="resize-handle-h" id="resize-handle-h"></div>
+
       <div class="output-section">
         <div class="output-header">
           <div class="output-tabs" id="output-tabs"></div>
-          <button class="btn-clear" id="btn-clear-output" title="清空输出">Clear</button>
+          <div class="output-header-actions">
+            <div class="search-output-container hidden" id="search-output-container">
+              <input type="text" id="search-output-input" placeholder="在输出中搜索..." />
+              <button id="btn-search-prev" title="上一个">↑</button>
+              <button id="btn-search-next" title="下一个">↓</button>
+              <button id="btn-search-close" title="关闭搜索">✕</button>
+            </div>
+            <button class="btn-icon-text" id="btn-search-output" title="搜索 (Ctrl+F)">🔍</button>
+            <button class="btn-icon-text active" id="btn-scroll-lock" title="切换自动滚动到底部">⬇️</button>
+            <button class="btn-icon-text" id="btn-export-log" title="导出日志">💾</button>
+            <button class="btn-clear" id="btn-clear-output" title="清空输出">Clear</button>
+          </div>
         </div>
         <div class="output-area" id="output-area">
           <span class="output-placeholder">shell output after command executed</span>
@@ -111,6 +126,29 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="btn-cancel">取消</button>
         <button class="btn-primary"   id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Global Env ─────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modal-global-env-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-global-title">
+      <div class="modal-header">
+        <h2 id="modal-global-title">Global Environments</h2>
+        <button class="btn-icon" id="btn-close-global-modal" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <div class="env-header">
+            <label>全局环境变量将在所有工具启动时注入</label>
+            <button type="button" class="btn-add-env" id="btn-add-global-env">+ 添加</button>
+          </div>
+          <div class="env-table" id="global-env-table"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-global">取消</button>
+        <button class="btn-primary"   id="btn-save-global">保存</button>
       </div>
     </div>
   </div>

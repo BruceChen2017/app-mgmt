@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process-exit', (_event, data) => callback(data)),
   exportTools: (tools) => ipcRenderer.invoke('export-tools', tools),
   importTools: ()      => ipcRenderer.invoke('import-tools'),
+  loadGlobals: ()      => ipcRenderer.invoke('load-globals'),
+  saveGlobals: (globals) => ipcRenderer.invoke('save-globals', globals),
+  exportLog: (toolName, textContent) => ipcRenderer.invoke('export-log', { toolName, textContent }),
   showOutputContextMenu: (selectedText) => ipcRenderer.send('show-output-context-menu', selectedText),
   onOutputContextAction: (callback) => ipcRenderer.on('output-context-action', (_e, action) => callback(action)),
 });

@@ -129,6 +129,9 @@ let dragToolId = null;
 const cmdHistory    = new Map();
 /** Navigation cursor into history (-1 = not browsing) */
 const cmdHistoryIdx = new Map();
+/** Last exit codes for tools */
+const exitCodes     = new Map();
+let isScrollLocked  = true;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const toolListEl     = document.getElementById('tool-list');
@@ -169,6 +172,7 @@ async function init() {
 
   window.electronAPI.onProcessExit(({ toolId, code }) => {
     runningTools.delete(toolId);
+    exitCodes.set(toolId, code);
     pushAndDisplay(toolId, `\n[进程已退出，退出码 ${code}]\n`, 'system');
     if (toolId === selectedToolId) updateButtons();
     renderOutputTabs();
@@ -229,8 +233,14 @@ function renderToolList() {
     header.innerHTML =
       `<span class="tool-group-arrow">${isCollapsed ? '▶' : '▼'}</span>` +
       `<span class="tool-group-name">${escHtml(groupName)}</span>` +
-      `<span class="tool-group-count">${groupTools.length}</span>`;
-    header.addEventListener('click', () => {
+      `<span class="tool-group-count">${groupTools.length}</span>` +
+      `<button class="btn-start-all" title="启动整组" style="margin-left:auto; background:none; border:none; color:inherit; cursor:pointer;" data-group="${escHtml(groupName)}">▶ Start All</button>`;
+    header.addEventListener('click', (e) => {
+      if (e.target.classList.contains('btn-start-all')) {
+        const toRun = tools.filter(t => t.group === groupName);
+        toRun.forEach(t => startToolById(t.id));
+        return;
+      }
       if (collapsedGroups.has(groupName)) collapsedGroups.delete(groupName);
       else collapsedGroups.add(groupName);
       renderToolList();
@@ -250,14 +260,20 @@ function renderToolList() {
 function createToolItem(tool) {
   const isRunning  = runningTools.has(tool.id);
   const isSelected = tool.id === selectedToolId;
+  const lastCode   = exitCodes.get(tool.id);
+  const isError    = lastCode != null && lastCode !== 0;
+  
   const item = document.createElement('div');
   item.className =
     'tool-item' +
     (isSelected ? ' selected' : '') +
-    (isRunning  ? ' running'  : '');
+    (isRunning  ? ' running'  : '') +
+    (isError && !isRunning ? ' error' : '');
   item.dataset.id = tool.id;
 
-  const dot = isRunning ? '<span class="running-dot" title="运行中"></span>' : '';
+  const dot = isRunning 
+    ? '<span class="running-dot" title="运行中"></span>' 
+    : (isError ? `<span title="Exit code: ${lastCode}" style="width:7px;height:7px;border-radius:50%;background:var(--danger);flex-shrink:0;"></span>` : '');
   item.setAttribute('draggable', 'true');
   item.innerHTML = `
     <span class="drag-handle" title="拖拽排序">⠿</span>
@@ -474,6 +490,34 @@ btnStart.addEventListener('click', async () => {
   }
 });
 
+async function startToolById(toolId) {
+  const tool = tools.find(t => t.id === toolId);
+  if (!tool) return;
+  if (runningTools.has(toolId)) return;
+  const cmd = tool.command || '';
+  if (!cmd) return;
+  
+  toolOutputs.set(toolId, []);
+  toolAnsiStates.set(toolId, freshState());
+  runningTools.add(toolId);
+  exitCodes.delete(toolId);
+  
+  renderOutputTabs();
+  renderToolList();
+  if (toolId === selectedToolId) updateButtons();
+  
+  pushAndDisplay(toolId, `$ ${cmd}${tool.cwd ? ' (cwd: '+tool.cwd+')' : ''}\n`, 'system');
+  const envVars = Array.isArray(tool.envVars) ? tool.envVars : [];
+  const result = await window.electronAPI.startCommand(toolId, cmd, tool.cwd, envVars);
+  if (!result.success) {
+    runningTools.delete(toolId);
+    exitCodes.set(toolId, 1);
+    pushAndDisplay(toolId, `Error: ${result.error}\n`, 'stderr');
+    if (toolId === selectedToolId) updateButtons();
+    renderToolList();
+  }
+}
+
 btnStop.addEventListener('click', async () => {
   if (!selectedToolId) return;
   const result = await window.electronAPI.stopCommand(selectedToolId);
@@ -586,6 +630,46 @@ btnClearOutput.addEventListener('click', () => {
   renderOutputTabs();
 });
 
+// ── Search & Logs ─────────────────────────────────────────────────────────────
+document.getElementById('btn-scroll-lock').addEventListener('click', (e) => {
+  isScrollLocked = !isScrollLocked;
+  e.currentTarget.classList.toggle('active', isScrollLocked);
+});
+
+document.getElementById('btn-export-log').addEventListener('click', async () => {
+  const targetId = activeOutputToolId || selectedToolId;
+  if (!targetId) return;
+  const tool = tools.find(t => t.id === targetId);
+  await window.electronAPI.exportLog(tool ? tool.name : 'tool', outputArea.innerText);
+});
+
+const searchContainer = document.getElementById('search-output-container');
+document.getElementById('btn-search-output').addEventListener('click', () => {
+  searchContainer.classList.toggle('hidden');
+  if (!searchContainer.classList.contains('hidden')) {
+    document.getElementById('search-output-input').focus();
+  }
+});
+document.getElementById('btn-search-close').addEventListener('click', () => searchContainer.classList.add('hidden'));
+
+let searchResults = [];
+let searchCurrent = -1;
+function executeSearch(step = 1) {
+  const query = document.getElementById('search-output-input').value;
+  if (!query) return;
+  if (step === 0 || searchResults.length === 0) {
+    window.find(query, false, false, true); // Basic browser search integration
+  } else {
+    window.find(query, false, step === -1, true);
+  }
+}
+document.getElementById('search-output-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') executeSearch(e.shiftKey ? -1 : 1);
+});
+document.getElementById('btn-search-next').addEventListener('click', () => executeSearch(1));
+document.getElementById('btn-search-prev').addEventListener('click', () => executeSearch(-1));
+
+
 // ── Output system ─────────────────────────────────────────────────────────────
 /**
  * Parse rawText with ANSI codes, store rendered HTML in buffer,
@@ -621,7 +705,7 @@ function pushAndDisplay(toolId, rawText, stream) {
     const placeholder = outputArea.querySelector('.output-placeholder');
     if (placeholder) placeholder.remove();
     outputArea.insertAdjacentHTML('beforeend', html);
-    outputArea.scrollTop = outputArea.scrollHeight;
+    if (isScrollLocked) outputArea.scrollTop = outputArea.scrollHeight;
   }
 }
 
@@ -656,12 +740,42 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('mouseup', () => {
-  if (!dragStart) return;
-  dragStart = null;
-  resizeHandle.classList.remove('dragging');
-  document.body.style.cursor     = '';
-  document.body.style.userSelect = '';
+  if (dragStart) {
+    dragStart = null;
+    resizeHandle.classList.remove('dragging');
+    document.body.style.cursor     = '';
+    document.body.style.userSelect = '';
+  }
+  if (dragStartH) {
+    dragStartH = null;
+    resizeHandleH.classList.remove('dragging');
+    document.body.style.cursor     = '';
+    document.body.style.userSelect = '';
+  }
 });
+
+// Vertical resizing for output section
+const resizeHandleH = document.getElementById('resize-handle-h');
+const commandSec    = document.querySelector('.command-section');
+let dragStartH      = null;
+
+if (resizeHandleH) {
+  resizeHandleH.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragStartH = { y: e.clientY, h: commandSec.offsetHeight };
+    resizeHandleH.classList.add('dragging');
+    document.body.style.cursor     = 'row-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragStartH) return;
+    const h = Math.max(80, dragStartH.h + e.clientY - dragStartH.y);
+    commandSec.style.flex = 'none';
+    commandSec.style.height = h + 'px';
+  });
+}
+
 // ── Output tabs ─────────────────────────────────────────────────────────
 function renderOutputTabs() {
   outputTabsEl.innerHTML = '';
@@ -962,6 +1076,43 @@ window.electronAPI.onOutputContextAction((action) => {
     btnClearOutput.click();
   }
 });
+
+// ── Global Env Modal ──────────────────────────────────────────────────────────
+const btnGlobalEnv = document.getElementById('btn-global-env');
+const modalGlobalEnv = document.getElementById('modal-global-env-overlay');
+const globalEnvTable = document.getElementById('global-env-table');
+
+function addRowToGlobal(key='', value='') {
+  const row = document.createElement('div');
+  row.className = 'env-row';
+  row.innerHTML = `<input class="env-key" value="${escHtml(key)}" placeholder="KEY" spellcheck="false">
+                   <input class="env-val" value="${escHtml(value)}" placeholder="值" spellcheck="false">
+                   <button type="button" class="btn-del-env" title="删除">✕</button>`;
+  row.querySelector('.btn-del-env').addEventListener('click', () => row.remove());
+  globalEnvTable.appendChild(row);
+}
+
+if (btnGlobalEnv) {
+  btnGlobalEnv.addEventListener('click', async () => {
+    const globals = await window.electronAPI.loadGlobals();
+    globalEnvTable.innerHTML = '';
+    globals.forEach(({ key, value }) => addRowToGlobal(key, value));
+    modalGlobalEnv.classList.remove('hidden');
+  });
+
+  document.getElementById('btn-add-global-env').addEventListener('click', () => addRowToGlobal());
+  document.getElementById('btn-close-global-modal').addEventListener('click', () => modalGlobalEnv.classList.add('hidden'));
+  document.getElementById('btn-cancel-global').addEventListener('click', () => modalGlobalEnv.classList.add('hidden'));
+
+  document.getElementById('btn-save-global').addEventListener('click', async () => {
+    const globals = [...globalEnvTable.querySelectorAll('.env-row')].map(row => ({
+      key: row.querySelector('.env-key').value.trim(),
+      value: row.querySelector('.env-val').value,
+    })).filter(g => g.key);
+    await window.electronAPI.saveGlobals(globals);
+    modalGlobalEnv.classList.add('hidden');
+  });
+}
 
 // ── Kick off ──────────────────────────────────────────────────────────────────
 init();

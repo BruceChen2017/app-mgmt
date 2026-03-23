@@ -8,6 +8,23 @@ let mainWindow;
 const runningProcesses = {};
 
 const toolsFilePath = path.join(app.getPath('userData'), 'tools.json');
+const globalsFilePath = path.join(app.getPath('userData'), 'globals.json');
+
+function loadGlobals() {
+  if (fs.existsSync(globalsFilePath)) {
+    try {
+      const raw = fs.readFileSync(globalsFilePath, 'utf-8');
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveGlobals(globals) {
+  fs.writeFileSync(globalsFilePath, JSON.stringify(globals, null, 2), 'utf-8');
+}
 
 function loadTools() {
   if (fs.existsSync(toolsFilePath)) {
@@ -68,6 +85,13 @@ ipcMain.handle('save-tools', (_event, tools) => {
   return true;
 });
 
+ipcMain.handle('load-globals', () => loadGlobals());
+
+ipcMain.handle('save-globals', (_event, globals) => {
+  saveGlobals(globals);
+  return true;
+});
+
 ipcMain.handle('start-command', (_event, { toolId, command, cwd, envVars }) => {
   if (runningProcesses[toolId]) {
     return { success: false, error: 'Already running' };
@@ -83,6 +107,14 @@ ipcMain.handle('start-command', (_event, { toolId, command, cwd, envVars }) => {
   }
 
   const spawnEnv = { ...process.env };
+  const globalVars = loadGlobals();
+  
+  if (Array.isArray(globalVars)) {
+    globalVars.forEach(({ key, value }) => {
+      if (key && key.trim()) spawnEnv[key.trim()] = value ?? '';
+    });
+  }
+
   if (Array.isArray(envVars)) {
     envVars.forEach(({ key, value }) => {
       if (key && key.trim()) spawnEnv[key.trim()] = value ?? '';
@@ -173,6 +205,21 @@ ipcMain.handle('export-tools', async (_event, tools) => {
   if (canceled || !filePath) return { success: false, canceled: true };
   try {
     fs.writeFileSync(filePath, JSON.stringify(tools, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('export-log', async (_event, { toolName, textContent }) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: '导出日志',
+    defaultPath: `${toolName || 'tool'}.log`,
+    filters: [{ name: 'Log File', extensions: ['log', 'txt'] }],
+  });
+  if (canceled || !filePath) return { success: false, canceled: true };
+  try {
+    fs.writeFileSync(filePath, textContent, 'utf-8');
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
